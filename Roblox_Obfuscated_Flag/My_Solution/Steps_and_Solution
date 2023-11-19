@@ -1,0 +1,84 @@
+#Step 1. Download File
+
+After downling the file , it realise the a roblox 3D object model file (rbxm) so we can open it in roblox studio
+
+#Step 2. Opening Roblox Studios 
+
+Loading into roblox studios i enter a baseplate and drag the roblox object model it and we see that it has two parts
+
+a Parent named YBNCTF-Obfuscated_Flag and a Child set as Data named Password
+
+So we from this we can assume that this model has a password and could possible be locked , running the game now loads the model and sends an error message in console.log which states invalid password so its safe to say that we need to either retrieve the password from the object model some how or bruteforce it.
+
+#Step 3. Investigating further -- Optional
+Opening the Parent YBNCTF-Obfuscated_Flag we can see that its using Boronide V0.70 Obfuscator to obfuscate the lua code , from there we can try Constant dumping. We can either do this manually or using online deobfuscator. Doing it manually we can first search all function and find a function that assigns a random generated string to a function ["_xxO6zZX945yy9yZo2"]=function(X,a) then search the string "_xxO6zZX945yy9yZo2" we can see that there are two similar sets within the code ["_xxO6zZX945yy9yZo2"]=i  , BINGO we got our target function. Now searching "function(X,a" we have 26 results and iterating through them we want to find a pattern that is the function(X,a,?,?,?) the ? must the all the same letters and the length can vary but it will appear below the code "["_xxO6zZX945yy9yZo2"]=function(X,a)" in our case we found to possible targets function(X,a,a,a,a) and function(X,a,b,b,b,b) but the function that is a , a , a appears later than b , b , b , b so we can remove that. Now right before the return function for function(X,a,a,a,a) we can print(a) and saving that and running the file we can see a bunch stuff being dumped out which include our the word Password , Value and other function names but it only dumps the variable name so thats a dead end.
+
+#Step 4. taking a step back 
+So what can we do about this , running it and reading the console.log it says "17:31:17.640  Invalid Password!  -  Server - YBNCTF-Obfuscated_Flag:12" so this means that there is communications with the server or some means of communicating so what we can try to do now is intercept the communication , we can do this by using a "Hook" where we hook the HttpService then set all the data into a metatable and then print it out its sort of like a man in the middle attack.
+The code below is what should be put right above the original code given
+```
+--lua--
+local env = getfenv()
+local _game = env["game"]
+local catcher = function(call, a, b)
+    warn("Caught Function Call", call, a, b)
+end
+
+env["game"] = setmetatable({GetService = function(...)
+    if ({...})[2] == "HttpService" then
+        local _realHttpService = _game:GetService("HttpService")
+        warn("Hooked HttpService")
+        return setmetatable({
+            GetAsync = function(...) return catcher("GetAsync", ...) end,
+            PostAsync = function(...) return catcher("PostAsync", ...) end,
+            RequestAsync = function(...) return catcher("RequestAsync", ...) end
+        }, {
+            __index = function(self, hkey)
+                print(hkey)
+                return setmetatable({}, {
+                    __call = function(_, ...)
+                        local _realCall = _realHttpService[hkey]
+                        return _realCall(_realHttpService, ...)
+                    end
+                })
+            end
+        })
+    end
+    return _game[({...})[2]]
+end}, {
+    __index = function(self, key) return _game[key] end
+})
+```
+#Step 5. Yay Solution.
+From there we running the code in roblox studios we get the code below
+  17:32:27.014  Hooked HttpService  -  Server - YBNCTF-Obfuscated_Flag:14
+  17:32:27.014  Caught Function Call RequestAsync  ▼  {
+                    ["GetAsync"] = "function",
+                    ["PostAsync"] = "function",
+                    ["RequestAsync"] = "function"
+                 }  ▼  {
+                    ["Headers"] =  ▼  {
+                       ["Password"] = "1_th1nk_th1s_1s_th3_passw0rd_f0r_th3_flag"
+                    },
+                    ["Method"] = "GET",
+                    ["Url"] = 1942894408
+                 }  -  Server - YBNCTF-Obfuscated_Flag:8
+  17:32:27.015  Invalid Password!  -  Server - YBNCTF-Obfuscated_Flag:43
+
+Then inspecting the http traffic and see that within the headers there is a password key value pair. With that changing the Child Password's Value to "1_th1nk_th1s_1s_th3_passw0rd_f0r_th3_flag" , and running it again we get a simple string printed 
+ 
+  17:52:47.749  Hooked HttpService  -  Server - YBNCTF-Obfuscated_Flag:14
+  17:52:47.750  Caught Function Call RequestAsync  ▼  {
+                      ["GetAsync"] = "function",
+                      ["PostAsync"] = "function",
+                      ["RequestAsync"] = "function"
+                   }  ▼  {
+                      ["Headers"] =  ▼  {
+                         ["Password"] = "1_th1nk_th1s_1s_th3_passw0rd_f0r_th3_flag"
+                      },
+                      ["Method"] = "GET",
+                      ["Url"] = 1942894408
+                   }  -  Server - YBNCTF-Obfuscated_Flag:8
+  17:52:47.750  YBN{Y0u_Cr@ck3d_th3_p@ssw0rd_&nd_g0t_the_fl@g?!?!}  -  Server - YBNCTF-Obfuscated_Flag:43
+
+
